@@ -21,6 +21,7 @@ export interface ArtifactMetadata {
   model?: string;
   ratio?: string;
   duration?: number;
+  resolution?: "360p" | "720p" | "1080p";
   requestedOutputs: number;
   quality?: "original" | "2k" | "4k";
   characters?: string[];

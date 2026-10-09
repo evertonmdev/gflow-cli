@@ -206,26 +206,14 @@ export interface ChromeLaunch {
   port: number;
 }
 
-// A "headless" run still launches the REAL, full Chrome and drives it over CDP exactly like a
-// headed run — Google already trusts that browser (it is what the profile signed in with) and
-// will not re-challenge it. We only hide the window so nothing shows on the user's desktop.
-// We deliberately avoid Chrome's own --headless=new: that is a separate engine Google can
-// still fingerprint as insecure ("this browser or app may not be secure"), which is exactly
-// the failure headed mode does not hit.
-//
-// These launch args are best-effort hints (they work on Windows/Linux); macOS ignores both
-// the off-screen position (windows are clamped to the visible display) and --start-minimized
-// for a directly spawned Chrome. applyWindowVisibility() is the authoritative enforcement:
-// it minimizes the window over CDP as soon as the session attaches.
+// Use the installed Chrome with the same authenticated profile but no desktop window.
+// Interactive Google sign-in still uses launchLoginChrome's ordinary visible window.
 export function hiddenWindowArgs(headed: boolean): string[] {
-  return headed ? [] : ["--window-position=-32000,-32000", "--window-size=1280,800", "--start-minimized"];
+  return headed ? [] : ["--headless=new", "--window-size=1280,800"];
 }
 
-// Enforce the requested window visibility over CDP (Browser.setWindowBounds), which works on
-// every platform including macOS where the launch-arg hints above are ignored. Headless runs
-// minimize the window; headed runs restore it, so a Chrome left minimized by a previous
-// --no-headed command becomes visible again when the user asks for --headed. Best-effort:
-// a CDP hiccup here must never block the actual job.
+// Restore an explicitly requested visible window. Headless sessions never call this;
+// a cosmetic CDP failure must not prevent an otherwise usable visible session.
 async function applyWindowVisibility(page: Page, headed: boolean): Promise<void> {
   try {
     const cdp = await page.context().newCDPSession(page);
@@ -268,7 +256,7 @@ export async function launchDebuggableChrome(profile: string, headed: boolean): 
     "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
-    // Headless = same real Chrome over CDP as headed, just hidden off-screen (see above).
+    // Headless Chrome has no window that can steal focus during clicks or downloads.
     ...hiddenWindowArgs(headed),
     FLOW_URL
   ];
@@ -309,7 +297,7 @@ export async function launchLoginChrome(profile: string): Promise<string> {
 }
 
 function pickFlowPage(context: BrowserContext): Page | undefined {
-  return context.pages().find((page) => page.url().includes("labs.google"));
+  return context.pages().find((page) => /^https:\/\/(?:flow\.google\.com(?:\/|$)|labs\.google\/fx\/tools\/flow(?:\/|$))/.test(page.url()));
 }
 
 // Bundled-Chromium path, kept for local fixtures/tests (`--browser chromium`). Real Google
@@ -345,6 +333,22 @@ export async function openBrowserSession(options: BrowserSessionOptions): Promis
   // Reuse an automation (debug-port) Chrome from a previous command if one is reachable.
   if (existingPort !== undefined) {
     browser = await connect(existingPort).catch(() => undefined);
+    if (browser) {
+      const cdp = await browser.newBrowserCDPSession();
+      let isHeadless: boolean;
+      try {
+        const { userAgent } = await cdp.send("Browser.getVersion");
+        isHeadless = userAgent.includes("HeadlessChrome");
+      } finally {
+        await cdp.detach();
+      }
+      // Windowed/headless is a process-level setting. Restart only this isolated profile
+      // when the requested mode differs; disconnecting alone would reuse the old window.
+      if (isHeadless === options.headed) {
+        await browser.close();
+        browser = undefined;
+      }
+    }
   }
 
   // Otherwise take the profile over with a debug-port Chrome. If a plain sign-in window is
@@ -352,7 +356,7 @@ export async function openBrowserSession(options: BrowserSessionOptions): Promis
   // automation Chrome can open the same, now signed-in, profile.
   if (!browser) {
     if (running.length > 0) {
-      console.error("gflow: handing the sign-in window over to an automation session…");
+      console.error(`gflow: starting ${options.headed ? "visible" : "headless"} Chrome with the saved login…`);
       await closeChromeForProfile(profileDir);
       await clearStaleSingletonLock(profileDir);
     }
@@ -373,7 +377,7 @@ export async function openBrowserSession(options: BrowserSessionOptions): Promis
   const context = browser.contexts()[0] ?? (await browser.newContext());
   const page = pickFlowPage(context) ?? context.pages()[0] ?? (await context.newPage());
   applyPageDefaults(page);
-  await applyWindowVisibility(page, options.headed);
+  if (options.headed) await applyWindowVisibility(page, true);
 
   return {
     context,

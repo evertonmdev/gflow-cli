@@ -26,10 +26,12 @@ describe("job schemas", () => {
       type: "video",
       prompt: "A cinematic product reveal",
       duration: 8,
+      resolution: "360p",
       ratio: "16:9"
     });
 
     expect(job.duration).toBe(8);
+    expect(job.resolution).toBe("360p");
     expect(job.ratio).toBe("16:9");
   });
 

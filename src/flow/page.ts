@@ -6,7 +6,8 @@ import {
   GenerationFailedError,
   LoginRequiredError,
   ManualActionRequiredError,
-  RateLimitedError
+  RateLimitedError,
+  UiContractError
 } from "../errors.js";
 import { artifactBasename, writeArtifactMetadata } from "../output/artifacts.js";
 import { downloadResult, type DownloadQuality } from "./download.js";
@@ -32,7 +33,11 @@ export class FlowPage implements FlowAutomation {
   constructor(private readonly page: Page, private readonly flowUrl = FLOW_URL) {}
 
   async open(): Promise<void> {
-    await this.page.goto(this.flowUrl, { waitUntil: "domcontentloaded" });
+    // Keep the user's open project instead of returning to the dashboard each run.
+    const projectUrl = this.page.url().match(/^(https:\/\/(?:flow\.google\.com\/project\/|labs\.google\/fx\/tools\/flow\/project\/)[0-9a-f-]+)(?:[/?#]|$)/i)?.[1];
+    const targetUrl = this.flowUrl === FLOW_URL && projectUrl ? projectUrl : this.flowUrl;
+    // An asset viewer also has a prompt, but it edits that asset rather than generating.
+    if (this.page.url() !== targetUrl) await this.page.goto(targetUrl, { waitUntil: "domcontentloaded" });
     // Flow is a single-page app. Wait for either the signed-in dashboard or, when already
     // inside a project, the prompt box. A login/consent wall shows neither, so the wait
     // times out and assertReady() reports the real problem.
@@ -50,7 +55,7 @@ export class FlowPage implements FlowAutomation {
     // A signed-in session shows the Flow dashboard (project list) or, inside a project, the
     // prompt box. Either one means we are authenticated and ready.
     const dashboardReady = await locators.dashboardMarker.first().isVisible().catch(() => false);
-    const promptReady = (await locators.promptBox.count()) > 0;
+    const promptReady = await locators.promptBox.first().isVisible().catch(() => false);
     if (dashboardReady || promptReady) return;
 
     if (await locators.manualActionMarker.first().isVisible().catch(() => false)) {
@@ -113,6 +118,7 @@ export class FlowPage implements FlowAutomation {
         model: input.job.model,
         ratio: input.job.ratio,
         duration: input.job.type === "video" ? input.job.duration : undefined,
+        resolution: input.job.type === "video" ? input.job.resolution : undefined,
         requestedOutputs: input.job.outputs,
         quality,
         characters: input.job.character?.length ? input.job.character : undefined,
@@ -140,16 +146,30 @@ export class FlowPage implements FlowAutomation {
   // Video posters/thumbnails carry mediaUrlType=...THUMBNAIL and must be excluded.
   private async resultSrcs(type: "image" | "video"): Promise<string[]> {
     if (type === "video") {
-      return this.page.$$eval("video", (vids) =>
+      const readSources = () => this.page.$$eval("video", (vids) =>
         vids
           .map((v) => (v as HTMLVideoElement).currentSrc || (v as HTMLVideoElement).src)
-          .filter((src) => /media\.getMediaUrlRedirect/.test(src))
+          .filter((src) => /media\.getMediaUrlRedirect/.test(src)
+            || /^https:\/\/flow-content\.google\/video\//.test(src) || /^https:\/\/flow\.google\.com\/asb\//.test(src))
       );
+      const sources = new Set(await readSources());
+      // Angular mounts a video's playable preview only on hover, including when Chrome
+      // is minimized. Read each visible tile before moving to the next one.
+      const tiles = this.page.locator("flow-video-tile:visible");
+      for (let index = 0; index < await tiles.count(); index += 1) {
+        const tile = tiles.nth(index);
+        await tile.hover({ force: true, timeout: 2000 }).catch(() => undefined);
+        await tile.locator('video[src]:not([src=""])').first()
+          .waitFor({ state: "attached", timeout: 1500 }).catch(() => undefined);
+        for (const src of await readSources()) sources.add(src);
+      }
+      return [...sources];
     }
     return this.page.$$eval("img", (imgs) =>
       imgs
         .map((img) => (img as HTMLImageElement).currentSrc || (img as HTMLImageElement).src)
-        .filter((src) => (/media\.getMediaUrlRedirect/.test(src) && !/mediaUrlType=/.test(src)) || src.startsWith("data:"))
+        .filter((src) => (/media\.getMediaUrlRedirect/.test(src) && !/mediaUrlType=/.test(src))
+          || /^https:\/\/flow-content\.google\/image\//.test(src) || src.startsWith("data:"))
     );
   }
 
@@ -175,13 +195,27 @@ export class FlowPage implements FlowAutomation {
 
     // A layer left open by a previous (failed) command would make this click TOGGLE the
     // popover closed and every pick below silently miss — start from a clean slate.
-    await dismissOpenLayers(this.page);
-    await settings.click({ force: true }).catch(() => undefined);
-    await this.page.waitForTimeout(700);
+    const modePattern = job.type === "video" ? /Video$/ : /Image$/;
+    const modeControl = this.page.locator("button,[role=radio]").filter({ hasText: modePattern }).first();
+    let opened = false;
+    for (let attempt = 0; attempt < 2 && !opened; attempt += 1) {
+      await dismissOpenLayers(this.page);
+      await settings.click({ timeout: 4000 }).catch(() => settings.click({ force: true, timeout: 2000 }));
+      opened = await modeControl.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false);
+    }
+    if (!opened) throw new UiContractError("Could not open generation settings. Generation was not submitted.");
 
     // Mode first — switching it changes which ratios/durations/models are offered.
-    await pickOption(this.page, job.type === "video" ? /Video$/ : /Image$/);
+    await pickOption(this.page, modePattern);
     await this.page.waitForTimeout(400);
+
+    // Model changes may reset duration/resolution, so select it before those settings.
+    if (job.model) {
+      await pickModel(this.page, job.model, async () => {
+        await settings.click({ timeout: 4000 }).catch(() => settings.click({ force: true, timeout: 2000 }));
+        await modeControl.waitFor({ state: "visible", timeout: 5000 });
+      });
+    }
 
     // Video input mode: Frames (first/last frame images) vs Ingredients (text-to-video).
     if (job.type === "video") {
@@ -190,15 +224,27 @@ export class FlowPage implements FlowAutomation {
       await this.page.waitForTimeout(300);
     }
 
-    if (job.ratio && RATIO_ICON[job.ratio]) await pickOption(this.page, new RegExp(`^${RATIO_ICON[job.ratio]}`));
-    if (job.type === "video" && job.duration) await pickOption(this.page, new RegExp(`^${job.duration}s$`));
-    await pickOption(this.page, job.outputs === 1 ? /^1x$/ : new RegExp(`^x${job.outputs}$`));
-    if (job.model) {
-      // pickModel's retry dismisses every layer, including this popover — hand it a way back in.
-      await pickModel(this.page, job.model, async () => {
-        await settings.click({ force: true }).catch(() => undefined);
-        await this.page.waitForTimeout(700);
-      });
+    if (job.ratio) {
+      if (!RATIO_ICON[job.ratio] || !(await pickOption(this.page, new RegExp(`^${RATIO_ICON[job.ratio]}`)))) {
+        throw new UiContractError(`Could not select aspect ratio "${job.ratio}". Generation was not submitted.`);
+      }
+    }
+    if (job.type === "video" && job.duration && !(await pickOption(this.page, new RegExp(`^${job.duration}s$`)))) {
+      throw new UiContractError(`Could not select duration ${job.duration}s. Generation was not submitted.`);
+    }
+    if (job.type === "video" && job.resolution) {
+      // 360p carries a trailing Material "info" icon in current Flow.
+      const resolutionPattern = new RegExp(`^${job.resolution}(?:info)?$`);
+      if (!(await pickOption(this.page, resolutionPattern))) {
+        throw new UiContractError(`Could not select resolution ${job.resolution}. Generation was not submitted.`);
+      }
+      const selected = this.page.getByRole("radio").filter({ hasText: resolutionPattern }).first();
+      if (await selected.getAttribute("aria-checked").catch(() => null) === "false") {
+        throw new UiContractError(`Resolution ${job.resolution} was not selected. Generation was not submitted.`);
+      }
+    }
+    if (!(await pickOption(this.page, new RegExp(`^(?:x${job.outputs}|${job.outputs}x)$`)))) {
+      throw new UiContractError(`Could not select ${job.outputs} output(s). Generation was not submitted.`);
     }
 
     // The model dropdown and the settings popover are separate layers; a single Escape can

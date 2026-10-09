@@ -52,12 +52,10 @@ describe("hiddenWindowArgs", () => {
     expect(hiddenWindowArgs(true)).toEqual([]);
   });
 
-  it("hides the window off-screen for a headless run without using Chrome's headless engine", () => {
+  it("uses Chrome's headless engine without creating a desktop window", () => {
     const args = hiddenWindowArgs(false);
-    expect(args).toContain("--window-position=-32000,-32000");
-    expect(args.some((a) => a.startsWith("--start-minimized"))).toBe(true);
-    // The whole point: never fall back to --headless=new, which Google can still flag as insecure.
-    expect(args.some((a) => a.includes("headless"))).toBe(false);
+    expect(args).toContain("--headless=new");
+    expect(args).not.toContain("--start-minimized");
   });
 });
 

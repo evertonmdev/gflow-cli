@@ -90,8 +90,8 @@ function withSessionOptions(command: Command): Command {
     .option("--project <name>", "Flow project")
     .option("--profile <name>", "browser profile name", "default")
     .option("--browser <name>", "browser channel for Flow automation: chrome or chromium", parseBrowserOption, DEFAULT_BROWSER_CHANNEL)
-    .option("--headed", "show browser", true)
-    .option("--no-headed", "run browser headless");
+    .option("--headed", "show browser", false)
+    .option("--no-headed", "run Chrome without a window (default)");
 }
 
 function nestedSessionOptions(commandOptions: unknown, command: unknown): {
@@ -103,7 +103,7 @@ function nestedSessionOptions(commandOptions: unknown, command: unknown): {
   return {
     project: commandOption<string>(command, "project") ?? commandOption<string>(commandOptions, "project"),
     profile: commandOption<string>(command, "profile") ?? commandOption<string>(commandOptions, "profile") ?? "default",
-    headed: commandOption<boolean>(command, "headed") ?? commandOption<boolean>(commandOptions, "headed") ?? true,
+    headed: commandOption<boolean>(command, "headed") ?? commandOption<boolean>(commandOptions, "headed") ?? false,
     browser: commandOption<BrowserChannel>(command, "browser") ?? commandOption<BrowserChannel>(commandOptions, "browser") ?? DEFAULT_BROWSER_CHANNEL
   };
 }
@@ -163,8 +163,8 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     .description("Check that the Flow browser session is signed in and ready.")
     .option("--profile <name>", "browser profile name", "default")
     .option("--browser <name>", "browser channel for Flow automation: chrome or chromium", parseBrowserOption, DEFAULT_BROWSER_CHANNEL)
-    .option("--headed", "show browser", true)
-    .option("--no-headed", "run browser headless")
+    .option("--headed", "show browser", false)
+    .option("--no-headed", "run Chrome without a window (default)")
     .action(async (command) => {
       const owned = await realAutomation(command.profile, command.headed, command.browser);
       try {
@@ -195,8 +195,8 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     })
     .option("--profile <name>", "browser profile name", "default")
     .option("--browser <name>", "browser channel for Flow automation: chrome or chromium", parseBrowserOption, DEFAULT_BROWSER_CHANNEL)
-    .option("--headed", "show browser", true)
-    .option("--no-headed", "run browser headless")
+    .option("--headed", "show browser", false)
+    .option("--no-headed", "run Chrome without a window (default)")
     .action(async (command) => {
       const job = parseImageJob({
         id: command.id,
@@ -234,6 +234,7 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     .option("--model <name>", "Flow-visible model")
     .option("--ratio <ratio>", "Flow-visible aspect ratio")
     .option("--duration <seconds>", "Flow-visible duration", parseIntegerOption)
+    .option("--resolution <resolution>", "Flow-visible video resolution: 360p, 720p or 1080p")
     .option("--outputs <n>", "number of outputs", parseIntegerOption, 1)
     .option("--start-frame <path>", "first-frame image (switches Flow to Frames mode)")
     .option("--end-frame <path>", "last-frame image (Frames mode)")
@@ -246,8 +247,8 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     })
     .option("--profile <name>", "browser profile name", "default")
     .option("--browser <name>", "browser channel for Flow automation: chrome or chromium", parseBrowserOption, DEFAULT_BROWSER_CHANNEL)
-    .option("--headed", "show browser", true)
-    .option("--no-headed", "run browser headless")
+    .option("--headed", "show browser", false)
+    .option("--no-headed", "run Chrome without a window (default)")
     .action(async (command) => {
       const job = parseVideoJob({
         id: command.id,
@@ -257,6 +258,7 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
         model: command.model,
         ratio: command.ratio,
         duration: command.duration,
+        resolution: command.resolution,
         outputs: command.outputs,
         startFrame: command.startFrame ? resolve(process.cwd(), command.startFrame) : undefined,
         endFrame: command.endFrame ? resolve(process.cwd(), command.endFrame) : undefined,
@@ -286,8 +288,8 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     .option("--out <path>", "output directory", "./gflow-output")
     .option("--profile <name>", "browser profile name", "default")
     .option("--browser <name>", "browser channel for Flow automation: chrome or chromium", parseBrowserOption, DEFAULT_BROWSER_CHANNEL)
-    .option("--headed", "show browser", true)
-    .option("--no-headed", "run browser headless")
+    .option("--headed", "show browser", false)
+    .option("--no-headed", "run Chrome without a window (default)")
     .option("--continue-on-failure", "continue after ordinary generation failures", false)
     .action(async (file, command) => {
       const batch = parseBatchYaml(await readFile(file, "utf8"));

@@ -22,6 +22,7 @@ export const imageJobSchema = baseJobSchema.extend({
 export const videoJobSchema = baseJobSchema.extend({
   type: z.literal("video"),
   duration: z.number().int().min(1).max(30).optional(),
+  resolution: z.enum(["360p", "720p", "1080p"]).optional(),
   startFrame: z.string().min(1).optional(),
   endFrame: z.string().min(1).optional()
 });

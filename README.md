@@ -22,6 +22,11 @@ browser session — no private APIs, no login bypass.
 
 ---
 
+This fork of [swissmarley/gflow-cli](https://github.com/swissmarley/gflow-cli) adds
+support for the current Flow editor, explicit video resolution selection, and true
+headless Chrome by default. The npm package below is maintained by the upstream author;
+use the source installation to run this fork's changes.
+
 ## Features
 
 - 🖼️ **Image generation** — Nano Banana 2 / Pro, Imagen 4
@@ -39,8 +44,7 @@ browser session — no private APIs, no login bypass.
 
 ## How it works
 
-`gflow` never spawns a hidden automation browser (Google challenges those with repeated 2FA).
-Instead:
+`gflow` separates interactive sign-in from automation using the same saved Chrome profile:
 
 1. `gflow auth login` opens a **plain Google Chrome** (no remote-debugging flags) so you can
    sign in normally — Google blocks sign-in in browsers with remote debugging enabled
@@ -50,7 +54,8 @@ Instead:
    **automation session**: it reopens the same, now signed-in, profile with a debugging port
    and attaches over the Chrome DevTools Protocol (`connectOverCDP`). It only ever loads Flow
    with valid cookies — never the accounts sign-in page — so the block never applies.
-4. From then on, commands reuse that window, drive Flow's normal UI, and download results
+4. From then on, commands reuse the headless browser process (or a visible window with
+   `--headed`), drive Flow's normal UI, and download results
    through Flow's own authenticated media URLs.
 
 ## Requirements
@@ -72,10 +77,10 @@ This puts a `gflow` command on your `PATH`.
 ### From source
 
 ```bash
-git clone https://github.com/swissmarley/gflow-cli.git
+git clone https://github.com/evertonmdev/gflow-cli.git
 cd gflow-cli
-npm install
-npm install -g .      # exposes `gflow` globally
+npm ci
+./gflow doctor        # local command; sign in first with ./gflow auth login
 ```
 
 If Chrome is installed in a non-standard location, point `gflow` at it:
@@ -98,9 +103,9 @@ gflow image --id hero --prompt "minimal editorial product still" --out ./out
 gflow video --id reveal --prompt "slow dolly over a misty lake" --duration 8 --out ./out
 ```
 
-> After `doctor`, keep the automation Chrome window open between commands — it's your live
-> session. If you close it, the next command reopens it from your saved login. If you ever get
-> signed out, run `gflow auth login` again.
+> Automation runs in headless Chrome by default, using the saved login without a desktop
+> window. Add `--headed` to show the browser for debugging. If you get signed out, run
+> `gflow auth login` to sign in in an ordinary visible window.
 
 ## Commands
 
@@ -135,7 +140,7 @@ Attaches to your Flow window (or launches one) and confirms you're signed in and
 | `--project <name>` | — | Flow project |
 | `--profile <name>` | `default` | Browser profile |
 | `--browser <name>` | `chrome` | Browser channel: `chrome` or `chromium` |
-| `--headed` / `--no-headed` | headed | Show or hide the browser |
+| `--headed` / `--no-headed` | headless | Show the browser explicitly or run Chrome without a window |
 
 ### `gflow video`
 
@@ -146,6 +151,7 @@ All `image` options apply, plus:
 | `--model <name>` | `Omni Flash` | `Omni Flash`, `Veo 3.1 - Lite/Fast/Quality` |
 | `--ratio <ratio>` | Flow default | `16:9`, `9:16` |
 | `--duration <seconds>` | Flow default | `4`, `6`, `8`, `10` |
+| `--resolution <resolution>` | Flow default | `360p`, `720p`, `1080p`, when offered by the selected model |
 | `--start-frame <path>` | — | First-frame image (enables **Frames** mode) |
 | `--end-frame <path>` | — | Last-frame image (Frames mode) |
 | `--character <name...>` | — | Reference one or more saved characters |

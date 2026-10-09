@@ -58,7 +58,7 @@ export async function pickModel(page: Page, model: string, reopen?: () => Promis
     // itself role=menu, but only the model menu has menuitem children). Fall through on
     // timeout so a markup change degrades to the old fixed-wait behavior.
     await page
-      .locator("[role=menu][data-state=open] [role=menuitem]")
+      .locator("[role=menu] [role=menuitem]:visible")
       .first()
       .waitFor({ state: "visible", timeout: 3000 })
       .catch(() => page.waitForTimeout(700));
@@ -121,7 +121,7 @@ export async function dismissOpenLayers(page: Page): Promise<void> {
     // :visible matters: Radix leaves stale hidden wrappers in the DOM, and .first() locking
     // onto one of those would report "nothing open" while a later visible layer still blocks.
     const open = await page
-      .locator("[data-radix-popper-content-wrapper]:visible, [data-radix-menu-content][data-state=open]:visible")
+      .locator("[data-radix-popper-content-wrapper]:visible, [data-radix-menu-content][data-state=open]:visible, .cdk-overlay-pane:visible")
       .first()
       .isVisible()
       .catch(() => false);

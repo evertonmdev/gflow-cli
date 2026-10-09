@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GFLOW_SETUP_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${GFLOW_CHROME_PATH:-}" && -x "$GFLOW_SETUP_ROOT/.local-chrome/opt/google/chrome/chrome" ]]; then
+  export GFLOW_CHROME_PATH="$GFLOW_SETUP_ROOT/.local-chrome/opt/google/chrome/chrome"
+fi
+cd -- "$GFLOW_SETUP_ROOT"
+exec node "$GFLOW_SETUP_ROOT/dist/src/index.js" "$@"

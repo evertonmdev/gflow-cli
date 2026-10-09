@@ -4,6 +4,18 @@ import type { AgentAutomation, CharacterAutomation, FlowAutomation, SceneAutomat
 import { createProgram, runCli } from "../src/cli.js";
 
 describe("CLI", () => {
+  it("passes the requested video model and resolution to automation", async () => {
+    const automation: FlowAutomation = {
+      runJob: vi.fn(async () => ({ jobId: "omni-360", artifacts: [], flowUrl: "https://flow.google.com/" }))
+    };
+    await createProgram({ automation }).parseAsync([
+      "node", "gflow", "video", "--id", "omni-360", "--prompt", "A red boat on a lake",
+      "--model", "Omni 1.1 Flash", "--resolution", "360p", "--duration", "4", "--ratio", "16:9"
+    ]);
+    expect(automation.runJob).toHaveBeenCalledWith(expect.objectContaining({
+      job: expect.objectContaining({ type: "video", model: "Omni 1.1 Flash", resolution: "360p", duration: 4, ratio: "16:9", outputs: 1 })
+    }));
+  });
   it("runs an image command through automation", async () => {
     const automation: FlowAutomation = {
       runJob: vi.fn(async () => ({
@@ -84,7 +96,7 @@ describe("CLI", () => {
     expect(login?.options.map((option) => option.long)).toContain("--profile");
   });
 
-  it("uses Chrome by default for real browser commands and supports no-headed", async () => {
+  it("uses Chrome headless by default and allows explicitly showing it", async () => {
     const automation: FlowAutomation = {
       runJob: vi.fn(async () => ({
         jobId: "headed-image",
@@ -96,20 +108,22 @@ describe("CLI", () => {
     const image = program.commands.find((command) => command.name() === "image");
 
     await program.parseAsync(["node", "gflow", "image", "--id", "headed-image", "--prompt", "Prompt"]);
-    expect(image?.opts().headed).toBe(true);
+    expect(image?.opts().headed).toBe(false);
     expect(image?.opts().browser).toBe("chrome");
 
     await program.parseAsync(["node", "gflow", "image", "--id", "headless-image", "--prompt", "Prompt", "--browser", "chromium", "--no-headed"]);
     expect(image?.opts().headed).toBe(false);
     expect(image?.opts().browser).toBe("chromium");
+    await program.parseAsync(["node", "gflow", "image", "--id", "visible-image", "--prompt", "Prompt", "--headed"]);
+    expect(image?.opts().headed).toBe(true);
   });
 
-  it("runs doctor headed by default so Flow renders for a logged-in profile", () => {
+  it("keeps doctor headless by default", () => {
     const program = createProgram();
     const doctor = program.commands.find((command) => command.name() === "doctor");
     const headed = doctor?.options.find((option) => option.long === "--headed");
 
-    expect(headed?.defaultValue).toBe(true);
+    expect(headed?.defaultValue).toBe(false);
     expect(doctor?.options.map((option) => option.long)).toContain("--no-headed");
   });
 

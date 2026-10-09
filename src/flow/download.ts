@@ -134,7 +134,14 @@ async function downloadViaMenu(input: DownloadInput): Promise<DownloadOutput | u
 async function saveDownload(input: DownloadInput, download: Download): Promise<DownloadOutput> {
   const ext = extname(download.suggestedFilename()) || (input.type === "video" ? ".mp4" : ".png");
   const assetPath = join(input.outDir, `${input.basename}${ext}`);
-  await download.saveAs(assetPath);
+  try {
+    await download.saveAs(assetPath);
+  } catch (error) {
+    // A CDP download may no longer have its temporary file when saveAs runs.
+    // Fetch the already generated media through its authenticated URL in that case.
+    if (!(error instanceof Error) || !/ENOENT/.test(error.message)) throw error;
+    return fallbackFetch(input);
+  }
   return { assetPath };
 }
 

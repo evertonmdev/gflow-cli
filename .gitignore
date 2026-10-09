@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 .gflow/
+.local-chrome/
 gflow-output/
 docs/
 *.log
